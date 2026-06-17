@@ -6,7 +6,7 @@ A CLI tool (`redis-tool-CLI`) that wraps hand-written Ansible playbooks to provi
 
 ```
 submission/               
-├── redis-tool-CLI              ← CLI entrypoint (Python, same commands)
+├── redis-tool-CLI              ← CLI entrypoint (Python)
 ├── ansible/
 │   ├── ansible.cfg
 │   ├── inventory/
