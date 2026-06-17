@@ -1,0 +1,74 @@
+---
+- name: Seed Redis Cluster with data
+  hosts: redis-node-1
+  become: yes
+  vars:
+    redis_install_dir: "/opt/redis"
+    redis_port: 6379
+    total_keys: 1000
+
+  tasks:
+    - name: Create seed script
+      copy:
+        dest: /tmp/seed_redis.sh
+        mode: '0755'
+        content: |
+          #!/bin/bash
+          REDIS_CLI="{{ redis_install_dir }}/bin/redis-cli"
+          CLUSTER_NODE="10.10.0.11:6379"
+          TOTAL={{ total_keys }}
+          SUCCESS=0
+          FAILED=0
+
+          echo "Seeding $TOTAL keys into Redis Cluster..."
+
+          for i in $(seq -f "%04g" 1 $TOTAL); do
+            KEY="key:$i"
+            VALUE=$(echo -n "$KEY" | sha256sum | awk '{print $1}')
+            RESULT=$($REDIS_CLI -c -h 10.10.0.11 -p {{ redis_port }} SET "$KEY" "$VALUE" 2>&1)
+            if [[ "$RESULT" == "OK" ]]; then
+              SUCCESS=$((SUCCESS + 1))
+            else
+              FAILED=$((FAILED + 1))
+              echo "FAILED: $KEY → $RESULT"
+            fi
+          done
+
+          echo ""
+          echo "Seed Summary:"
+          echo "  Total keys: $TOTAL"
+          echo "  Inserted:   $SUCCESS"
+          echo "  Failed:     $FAILED"
+
+    - name: Run seed script
+      shell: /tmp/seed_redis.sh
+      register: seed_result
+
+    - name: Show seed result
+      debug:
+        msg: "{{ seed_result.stdout_lines }}"
+
+    - name: Check key distribution across masters
+      shell: |
+        echo "Key distribution across masters:"
+        {{ redis_install_dir }}/bin/redis-cli -h 10.10.0.11 -p {{ redis_port }} dbsize | xargs echo "  node-1 (10.10.0.11):"
+        {{ redis_install_dir }}/bin/redis-cli -h 10.10.0.12 -p {{ redis_port }} dbsize | xargs echo "  node-2 (10.10.0.12):"
+        {{ redis_install_dir }}/bin/redis-cli -h 10.10.0.13 -p {{ redis_port }} dbsize | xargs echo "  node-3 (10.10.0.13):"
+      register: distribution
+
+    - name: Final Data Seed Report
+      debug:
+        msg: |
+          =========================================
+
+                   REDIS DATA SEED REPORT
+
+          =========================================
+
+          {{ seed_result.stdout }}
+
+          .........................................
+
+          {{ distribution.stdout }}
+
+          =========================================

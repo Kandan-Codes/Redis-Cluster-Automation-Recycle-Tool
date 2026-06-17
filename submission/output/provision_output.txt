@@ -1,0 +1,362 @@
+           =========================================
+                     REDIS CLUSTER PROVISION REPORT
+           =========================================
+
+Redis Version : 7.0.15
+
+mani-inc0683@mani-inc0683:~/Downloads/submission$ ./redis-tool-CLI provision --version 7.0.15 --masters 3 --replicas-per-master 1
+Checking prerequisites...
+✓ Podman 4.9.3 found
+✓ ansible [core 2.16.3]
+Proceeding...
+
+Provisioning Redis Cluster v7.0.15 (3 masters, 1 replica(s) per master)...
+
+PLAY [Install Redis on all nodes] *****************************************************
+
+TASK [Gathering Facts] ****************************************************************
+ok: [redis-node-1]
+ok: [redis-node-3]
+ok: [redis-node-5]
+ok: [redis-node-4]
+ok: [redis-node-2]
+ok: [redis-node-6]
+
+TASK [redis : Create redis user] ******************************************************
+changed: [redis-node-2]
+changed: [redis-node-5]
+changed: [redis-node-1]
+changed: [redis-node-6]
+changed: [redis-node-4]
+changed: [redis-node-3]
+
+TASK [redis : Create Redis directories] ***********************************************
+changed: [redis-node-4] => (item=/opt/redis)
+changed: [redis-node-5] => (item=/opt/redis)
+changed: [redis-node-1] => (item=/opt/redis)
+changed: [redis-node-2] => (item=/opt/redis)
+changed: [redis-node-3] => (item=/opt/redis)
+changed: [redis-node-4] => (item=/var/lib/redis)
+changed: [redis-node-5] => (item=/var/lib/redis)
+changed: [redis-node-1] => (item=/var/lib/redis)
+changed: [redis-node-2] => (item=/var/lib/redis)
+changed: [redis-node-3] => (item=/var/lib/redis)
+changed: [redis-node-5] => (item=/var/log/redis)
+changed: [redis-node-4] => (item=/var/log/redis)
+changed: [redis-node-1] => (item=/var/log/redis)
+changed: [redis-node-2] => (item=/var/log/redis)
+changed: [redis-node-6] => (item=/opt/redis)
+changed: [redis-node-6] => (item=/var/lib/redis)
+changed: [redis-node-6] => (item=/var/log/redis)
+changed: [redis-node-3] => (item=/var/log/redis)
+
+TASK [redis : Check if target binary already exists] **********************************
+ok: [redis-node-5]
+ok: [redis-node-2]
+ok: [redis-node-1]
+ok: [redis-node-3]
+ok: [redis-node-4]
+ok: [redis-node-6]
+
+TASK [redis : Check currently installed Redis version (if binary exists)] *************
+skipping: [redis-node-1]
+skipping: [redis-node-2]
+skipping: [redis-node-3]
+skipping: [redis-node-4]
+skipping: [redis-node-5]
+skipping: [redis-node-6]
+
+TASK [redis : Extract installed version string] ***************************************
+skipping: [redis-node-1]
+skipping: [redis-node-2]
+skipping: [redis-node-3]
+skipping: [redis-node-4]
+skipping: [redis-node-5]
+skipping: [redis-node-6]
+
+TASK [redis : Default installed_version when binary is missing] ***********************
+ok: [redis-node-1]
+ok: [redis-node-2]
+ok: [redis-node-3]
+ok: [redis-node-4]
+ok: [redis-node-5]
+ok: [redis-node-6]
+
+TASK [redis : Check whether Redis process is currently running on this node] **********
+skipping: [redis-node-1]
+skipping: [redis-node-2]
+skipping: [redis-node-3]
+skipping: [redis-node-4]
+skipping: [redis-node-5]
+skipping: [redis-node-6]
+
+TASK [redis : Decide whether install/restart is needed] *******************************
+ok: [redis-node-1]
+ok: [redis-node-2]
+ok: [redis-node-3]
+ok: [redis-node-4]
+ok: [redis-node-5]
+ok: [redis-node-6]
+
+TASK [redis : Report node provisioning decision] **************************************
+ok: [redis-node-1] => 
+  msg: 'redis-node-1: installed='''' requested=''7.0.15'' running=''no'' action=INSTALL/UPGRADE'
+ok: [redis-node-2] => 
+  msg: 'redis-node-2: installed='''' requested=''7.0.15'' running=''no'' action=INSTALL/UPGRADE'
+ok: [redis-node-3] => 
+  msg: 'redis-node-3: installed='''' requested=''7.0.15'' running=''no'' action=INSTALL/UPGRADE'
+ok: [redis-node-4] => 
+  msg: 'redis-node-4: installed='''' requested=''7.0.15'' running=''no'' action=INSTALL/UPGRADE'
+ok: [redis-node-5] => 
+  msg: 'redis-node-5: installed='''' requested=''7.0.15'' running=''no'' action=INSTALL/UPGRADE'
+ok: [redis-node-6] => 
+  msg: 'redis-node-6: installed='''' requested=''7.0.15'' running=''no'' action=INSTALL/UPGRADE'
+
+TASK [redis : Download Redis 7.0.15] **************************************************
+changed: [redis-node-3]
+changed: [redis-node-1]
+changed: [redis-node-5]
+changed: [redis-node-4]
+changed: [redis-node-2]
+changed: [redis-node-6]
+
+TASK [redis : Extract Redis source code] **********************************************
+changed: [redis-node-1]
+changed: [redis-node-4]
+changed: [redis-node-3]
+changed: [redis-node-2]
+changed: [redis-node-5]
+changed: [redis-node-6]
+
+TASK [redis : Compile Redis from source] **********************************************
+changed: [redis-node-5]
+changed: [redis-node-3]
+changed: [redis-node-1]
+changed: [redis-node-4]
+changed: [redis-node-2]
+changed: [redis-node-6]
+
+TASK [redis : Install Redis binaries] *************************************************
+changed: [redis-node-4]
+changed: [redis-node-2]
+changed: [redis-node-1]
+changed: [redis-node-5]
+changed: [redis-node-3]
+changed: [redis-node-6]
+
+TASK [redis : Create Redis config file] ***********************************************
+changed: [redis-node-1]
+changed: [redis-node-3]
+changed: [redis-node-6]
+changed: [redis-node-5]
+changed: [redis-node-4]
+changed: [redis-node-2]
+
+TASK [redis : Stop existing Redis (only if reinstalling or config changed)] ***********
+changed: [redis-node-1]
+changed: [redis-node-2]
+changed: [redis-node-3]
+changed: [redis-node-4]
+changed: [redis-node-5]
+changed: [redis-node-6]
+
+TASK [redis : Wait after stopping Redis] **********************************************
+Pausing for 2 seconds
+(ctrl+C then 'C' = continue early, ctrl+C then 'A' = abort)
+ok: [redis-node-1]
+
+TASK [redis : Start Redis server] *****************************************************
+changed: [redis-node-2]
+changed: [redis-node-4]
+changed: [redis-node-1]
+changed: [redis-node-3]
+changed: [redis-node-6]
+changed: [redis-node-5]
+
+TASK [redis : Wait for Redis to start] ************************************************
+ok: [redis-node-1]
+ok: [redis-node-3]
+ok: [redis-node-5]
+ok: [redis-node-2]
+ok: [redis-node-4]
+ok: [redis-node-6]
+
+TASK [redis : Verify Redis is running] ************************************************
+ok: [redis-node-1]
+ok: [redis-node-3]
+ok: [redis-node-2]
+ok: [redis-node-5]
+ok: [redis-node-4]
+ok: [redis-node-6]
+
+TASK [redis : Show Redis status] ******************************************************
+ok: [redis-node-1] => 
+  msg: Redis on redis-node-1 is PONG (installed/restarted)
+ok: [redis-node-2] => 
+  msg: Redis on redis-node-2 is PONG (installed/restarted)
+ok: [redis-node-3] => 
+  msg: Redis on redis-node-3 is PONG (installed/restarted)
+ok: [redis-node-4] => 
+  msg: Redis on redis-node-4 is PONG (installed/restarted)
+ok: [redis-node-5] => 
+  msg: Redis on redis-node-5 is PONG (installed/restarted)
+ok: [redis-node-6] => 
+  msg: Redis on redis-node-6 is PONG (installed/restarted)
+
+PLAY [Form Redis Cluster] *************************************************************
+
+TASK [Gathering Facts] ****************************************************************
+ok: [redis-node-1]
+
+TASK [Wait for all Redis nodes to be ready] *******************************************
+ok: [redis-node-1] => (item=10.10.0.11)
+ok: [redis-node-1] => (item=10.10.0.12)
+ok: [redis-node-1] => (item=10.10.0.13)
+ok: [redis-node-1] => (item=10.10.0.14)
+ok: [redis-node-1] => (item=10.10.0.15)
+ok: [redis-node-1] => (item=10.10.0.16)
+
+TASK [Check Cluster Status] ***********************************************************
+changed: [redis-node-1]
+
+TASK [Check Installed Redis Version] **************************************************
+changed: [redis-node-1]
+
+TASK [Extract Installed Version] ******************************************************
+ok: [redis-node-1]
+
+TASK [Determine Cluster Readiness] ****************************************************
+ok: [redis-node-1]
+
+TASK [Provisioning Decision] **********************************************************
+ok: [redis-node-1] => 
+  msg: |-
+    =========================================
+  
+    REDIS PROVISIONING CHECK
+  
+    =========================================
+  
+    Cluster Ready   : False
+    Installed Redis : 7.0.15
+    Requested Redis : 7.0.15
+    Version Match   : True
+  
+    =========================================
+
+TASK [Skip Provisioning] **************************************************************
+skipping: [redis-node-1]
+
+TASK [Form Redis Cluster] *************************************************************
+changed: [redis-node-1]
+
+TASK [Show Cluster Creation Result] ***************************************************
+ok: [redis-node-1] => 
+  cluster_result.stdout: |-
+    [29;1m>>> Performing hash slots allocation on 6 nodes...
+    [0mMaster[0] -> Slots 0 - 5460
+    Master[1] -> Slots 5461 - 10922
+    Master[2] -> Slots 10923 - 16383
+    Adding replica 10.10.0.15:6379 to 10.10.0.11:6379
+    Adding replica 10.10.0.16:6379 to 10.10.0.12:6379
+    Adding replica 10.10.0.14:6379 to 10.10.0.13:6379
+    M: 67b54ad61c70ac772e6bf427e717d41d3b6cedd0 10.10.0.11:6379
+       slots:[0-5460] (5461 slots) master
+    M: b41fb2be265a0014a25ced2628dabc38418c2764 10.10.0.12:6379
+       slots:[5461-10922] (5462 slots) master
+    M: 1645af9a15344626c6865fecad8aaeb946f15556 10.10.0.13:6379
+       slots:[10923-16383] (5461 slots) master
+    S: 71754d8ed75fe8c432296d47260cc5fde78ff777 10.10.0.14:6379
+       replicates 1645af9a15344626c6865fecad8aaeb946f15556
+    S: 9023c2e13935c691882f81b98e4d19296a9d725c 10.10.0.15:6379
+       replicates 67b54ad61c70ac772e6bf427e717d41d3b6cedd0
+    S: 44a12f5b4f9ca50c3b9600d4ba2c5cdf06feac8b 10.10.0.16:6379
+       replicates b41fb2be265a0014a25ced2628dabc38418c2764
+    [29;1m>>> Nodes configuration updated
+    [0m[29;1m>>> Assign a different config epoch to each node
+    [0m[29;1m>>> Sending CLUSTER MEET messages to join the cluster
+    [0mWaiting for the cluster to join
+    ...
+    [29;1m>>> Performing Cluster Check (using node 10.10.0.11:6379)
+    [0mM: 67b54ad61c70ac772e6bf427e717d41d3b6cedd0 10.10.0.11:6379
+       slots:[0-5460] (5461 slots) master
+       1 additional replica(s)
+    S: 71754d8ed75fe8c432296d47260cc5fde78ff777 10.10.0.14:6379
+       slots: (0 slots) slave
+       replicates 1645af9a15344626c6865fecad8aaeb946f15556
+    S: 44a12f5b4f9ca50c3b9600d4ba2c5cdf06feac8b 10.10.0.16:6379
+       slots: (0 slots) slave
+       replicates b41fb2be265a0014a25ced2628dabc38418c2764
+    M: 1645af9a15344626c6865fecad8aaeb946f15556 10.10.0.13:6379
+       slots:[10923-16383] (5461 slots) master
+       1 additional replica(s)
+    S: 9023c2e13935c691882f81b98e4d19296a9d725c 10.10.0.15:6379
+       slots: (0 slots) slave
+       replicates 67b54ad61c70ac772e6bf427e717d41d3b6cedd0
+    M: b41fb2be265a0014a25ced2628dabc38418c2764 10.10.0.12:6379
+       slots:[5461-10922] (5462 slots) master
+       1 additional replica(s)
+    [32;1m[OK] All nodes agree about slots configuration.
+    [0m[29;1m>>> Check for open slots...
+    [0m[29;1m>>> Check slots coverage...
+    
+    [0m[32;1m[OK] All 16384 slots covered.
+    [0m
+
+TASK [Get Cluster Topology] ***********************************************************
+changed: [redis-node-1]
+
+TASK [Print Cluster Topology] *********************************************************
+ok: [redis-node-1] => 
+  msg: |2-
+  
+    =========================================
+  
+            REDIS CLUSTER TOPOLOGY
+  
+    =========================================
+  
+    10.10.0.11:6379 (67b54ad6...) -> 0 keys | 5461 slots | 1 slaves.
+    10.10.0.13:6379 (1645af9a...) -> 0 keys | 5461 slots | 1 slaves.
+    10.10.0.12:6379 (b41fb2be...) -> 0 keys | 5462 slots | 1 slaves.
+    
+    [32;1m[OK] 0 keys in 3 masters.
+    [0m0.00 keys per slot on average.
+    [29;1m>>> Performing Cluster Check (using node 10.10.0.11:6379)
+    [0m
+    
+    M: 67b54ad61c70ac772e6bf427e717d41d3b6cedd0 10.10.0.11:6379
+       slots:[0-5460] (5461 slots) master
+       1 additional replica(s)
+    S: 71754d8ed75fe8c432296d47260cc5fde78ff777 10.10.0.14:6379
+       slots: (0 slots) slave
+       replicates 1645af9a15344626c6865fecad8aaeb946f15556
+    S: 44a12f5b4f9ca50c3b9600d4ba2c5cdf06feac8b 10.10.0.16:6379
+       slots: (0 slots) slave
+       replicates b41fb2be265a0014a25ced2628dabc38418c2764
+    M: 1645af9a15344626c6865fecad8aaeb946f15556 10.10.0.13:6379
+       slots:[10923-16383] (5461 slots) master
+       1 additional replica(s)
+    S: 9023c2e13935c691882f81b98e4d19296a9d725c 10.10.0.15:6379
+       slots: (0 slots) slave
+       replicates 67b54ad61c70ac772e6bf427e717d41d3b6cedd0
+    M: b41fb2be265a0014a25ced2628dabc38418c2764 10.10.0.12:6379
+       slots:[5461-10922] (5462 slots) master
+       1 additional replica(s)
+       
+    [32;1m[OK] All nodes agree about slots configuration.
+    [0m[29;1m>>> Check for open slots...
+    [0m[29;1m>>> Check slots coverage...
+    
+    [0m[32;1m[OK] All 16384 slots covered.
+    [0m
+  
+    =========================================
+
+PLAY RECAP ****************************************************************************
+redis-node-1               : ok=29   changed=13   unreachable=0    failed=0    skipped=4    rescued=0    ignored=0   
+redis-node-2               : ok=17   changed=9    unreachable=0    failed=0    skipped=3    rescued=0    ignored=0   
+redis-node-3               : ok=17   changed=9    unreachable=0    failed=0    skipped=3    rescued=0    ignored=0   
+redis-node-4               : ok=17   changed=9    unreachable=0    failed=0    skipped=3    rescued=0    ignored=0   
+redis-node-5               : ok=17   changed=9    unreachable=0    failed=0    skipped=3    rescued=0    ignored=0   
+redis-node-6               : ok=17   changed=9    unreachable=0    failed=0    skipped=3    rescued=0    ignored=0   

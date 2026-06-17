@@ -1,0 +1,33 @@
+
+mani-inc0683@mani-inc0683:~/redis-cluster-tool/submission$ ./redis-tool-CLI verify --full
+Checking prerequisites...
+✓ Podman 4.9.3 found
+✓ ansible [core 2.16.3]
+Proceeding...
+
+Running full verification...
+
+=========================================
+Redis Full Verification Report
+=========================================
+
+1. Data Integrity
+  PASS — 1000/1000 keys verified
+
+2. Version Consistency
+PASS - All nodes running Redis 7.2.6
+
+3. Topology Health
+PASS - 16384/16384 slots covered
+PASS - All masters have replicas
+
+4. Cluster State
+PASS - cluster_state:ok
+
+5. Replication Health
+PASS - All replicas master_link_status:up
+
+=========================================
+OVERALL RESULT: PASS
+=========================================
+

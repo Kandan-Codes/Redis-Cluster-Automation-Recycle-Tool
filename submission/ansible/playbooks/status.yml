@@ -1,0 +1,51 @@
+---
+- name: Collect Redis Status
+  hosts: redis_nodes
+  become: yes
+
+  vars:
+    redis_cli: /opt/redis/bin/redis-cli
+
+  tasks:
+
+    - name: Cluster Info
+      command: "{{ redis_cli }} cluster info"
+      register: cluster_info
+      when: inventory_hostname == "redis-node-1"
+
+    - name: Cluster Nodes
+      command: "{{ redis_cli }} cluster nodes"
+      register: cluster_nodes
+      when: inventory_hostname == "redis-node-1"
+
+    - name: Redis Version
+      command: "{{ redis_cli }} info server"
+      register: server_info
+
+    - name: Memory Info
+      command: "{{ redis_cli }} info memory"
+      register: memory_info
+
+    - name: DB Size
+      command: "{{ redis_cli }} dbsize"
+      register: dbsize
+
+    - name: Print Node Data
+      debug:
+        msg: |
+          NODE={{ inventory_hostname }}
+          {{ server_info.stdout }}
+          {{ memory_info.stdout }}
+          DBSIZE={{ dbsize.stdout }}
+
+    - name: Print Cluster Data
+      debug:
+        msg: |
+          CLUSTER_INFO_START
+          {{ cluster_info.stdout }}
+          CLUSTER_INFO_END
+
+          CLUSTER_NODES_START
+          {{ cluster_nodes.stdout }}
+          CLUSTER_NODES_END
+      when: inventory_hostname == "redis-node-1"

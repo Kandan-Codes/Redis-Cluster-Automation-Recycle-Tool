@@ -1,0 +1,376 @@
+---
+# ====================================================================
+# STAGE 0: PRE-FLIGHT CHECKS
+# Required by spec: verify cluster healthy, verify all nodes
+# reachable, verify version actually differs (idempotency / S4),
+# and establish a pre-upgrade data integrity baseline.
+# ====================================================================
+- name: Phase 4 - Pre-flight Checks
+  hosts: redis-node-1
+  become: yes
+  vars:
+    redis_install_dir: "/opt/redis"
+    redis_port: 6379
+
+  tasks:
+    - name: 0.1 Ping all nodes to confirm reachability
+      ansible.builtin.ping:
+      delegate_to: "{{ item }}"
+      loop: "{{ groups['redis_nodes'] }}"
+      register: reachability
+
+    - name: 0.2 Check current cluster health
+      shell: "{{ redis_install_dir }}/bin/redis-cli cluster info"
+      register: preflight_cluster_info
+
+    - name: 0.3 Fail fast if cluster is not healthy before we start
+      fail:
+        msg: >
+          Pre-flight check failed: cluster_state is not ok.
+          Refusing to start an upgrade on an unhealthy cluster.
+          Run './redis-tool status' to investigate first.
+      when: "'cluster_state:ok' not in preflight_cluster_info.stdout"
+
+    - name: 0.4 Collect current Redis version from all nodes
+      shell: >
+        {{ redis_install_dir }}/bin/redis-cli
+        -h {{ hostvars[item].ansible_host }}
+        -p {{ redis_port }}
+        INFO Server
+      delegate_to: "{{ item }}"
+      loop: "{{ groups['redis_nodes'] }}"
+      register: preflight_versions
+
+    - name: 0.5 Extract distinct currently-running versions
+      set_fact:
+        preflight_current_versions: >-
+          {{
+            preflight_versions.results
+            | map(attribute='stdout')
+            | map('regex_search', 'redis_version:([0-9.]+)', '\1')
+            | map('first')
+            | list
+            | unique
+          }}
+
+    - name: 0.6 Idempotency guard — exit cleanly if already on target version
+      debug:
+        msg: >
+          All nodes are already running Redis {{ target_version }}.
+          Nothing to upgrade — exiting cleanly (S4 idempotency).
+      when: preflight_current_versions == [target_version]
+
+    - name: 0.7 Stop the play here if already at target version
+      meta: end_play
+      when: preflight_current_versions == [target_version]
+
+    - name: 0.7b Ensure the verify script exists (self-sufficient — does not
+            depend on './redis-tool data verify' having been run first)
+      copy:
+        dest: /tmp/verify_redis.sh
+        mode: '0755'
+        content: |
+          #!/bin/bash
+          REDIS_CLI="{{ redis_install_dir }}/bin/redis-cli"
+          TOTAL={{ total_keys | default(1000) }}
+          VERIFIED=0
+          MISSING=0
+          MISMATCH=0
+          for i in $(seq -f "%04g" 1 $TOTAL); do
+              KEY="key:$i"
+              EXPECTED=$(echo -n "$KEY" | sha256sum | awk '{print $1}')
+              ACTUAL=$($REDIS_CLI -c -h 10.10.0.11 -p {{ redis_port }} GET "$KEY" 2>/dev/null)
+              if [ -z "$ACTUAL" ]; then
+                  MISSING=$((MISSING+1))
+              elif [ "$ACTUAL" != "$EXPECTED" ]; then
+                  MISMATCH=$((MISMATCH+1))
+              else
+                  VERIFIED=$((VERIFIED+1))
+              fi
+          done
+          if [ "$MISSING" -eq 0 ] && [ "$MISMATCH" -eq 0 ]; then
+              echo "PASS — $VERIFIED/$TOTAL keys verified"
+              exit 0
+          else
+              echo "FAIL — $MISSING keys missing, $MISMATCH values mismatched"
+              exit 1
+          fi
+
+    - name: 0.8 Run pre-upgrade data integrity baseline (data verify)
+      shell: /tmp/verify_redis.sh
+      register: preflight_data_verify
+      failed_when: false
+
+    - name: 0.9 Fail fast if pre-upgrade data baseline is not clean
+      fail:
+        msg: >
+          Pre-flight check failed: data verify did not return PASS
+          before starting the upgrade. Aborting to avoid upgrading
+          on top of an already-corrupt dataset. Output:
+          {{ preflight_data_verify.stdout }}
+      when: "'PASS' not in preflight_data_verify.stdout"
+
+    - name: 0.10 Pre-flight checks passed
+      debug:
+        msg: >
+          Pre-flight checks passed: cluster healthy, all nodes reachable,
+          current version(s) {{ preflight_current_versions }} differ from
+          target {{ target_version }}, data baseline verified.
+          Proceeding with rolling upgrade.
+
+# ====================================================================
+# STAGE 1: UPGRADE REPLICA NODES FIRST (ONE-BY-ONE)
+# ====================================================================
+- name: Phase 4 - Rolling Upgrade Replicas
+  hosts: replicas
+  serial: 1  # Forces Ansible to process containers ONE-BY-ONE
+  become: yes
+  vars:
+    redis_install_dir: "/opt/redis"
+    redis_port: 6379
+    redis_user: "redis"
+    redis_log_dir: "/var/log/redis"
+    
+    replica_map:
+      redis-node-1: "10.10.0.15"
+      redis-node-2: "10.10.0.16"
+      redis-node-3: "10.10.0.14"
+
+  tasks:
+    - name: 1.1 Print current Replica node
+      debug:
+        msg: ">>>> Upgrading Backup Replica Node: {{ inventory_hostname }} ({{ ansible_host }}) <<<<"
+
+    - name: 1.2 Download target Redis version {{ target_version }}
+      get_url:
+        url: "https://download.redis.io/releases/redis-{{ target_version }}.tar.gz"
+        dest: "/tmp/redis-{{ target_version }}.tar.gz"
+
+    - name: 1.3 Extract target Redis source code
+      unarchive:
+        src: "/tmp/redis-{{ target_version }}.tar.gz"
+        dest: "/tmp/"
+        remote_src: yes
+
+    - name: 1.4 Compile target Redis from source code
+      command:
+        cmd: make -j{{ ansible_processor_vcpus | default(2) }}
+        chdir: "/tmp/redis-{{ target_version }}"
+
+    - name: 1.5 Stop the active running Redis instance safely
+      shell: "pkill -f redis-server || true"
+      ignore_errors: yes
+      failed_when: false
+
+    - name: 1.6 Install target Redis binaries
+      command:
+        cmd: "make PREFIX={{ redis_install_dir }} install"
+        chdir: "/tmp/redis-{{ target_version }}"
+          
+    - name: 1.7 Restart the upgraded Redis server engine
+      shell: >
+        sudo -u {{ redis_user }}
+        {{ redis_install_dir }}/bin/redis-server
+        {{ redis_install_dir }}/redis.conf
+        --daemonize yes      
+       
+    - name: 1.8 Wait for Redis network port to open up
+      wait_for:
+        host: 127.0.0.1
+        port: "{{ redis_port }}"
+        timeout: 60
+
+    - name: 1.9 Wait for replica synchronization
+      pause:
+        seconds: 15
+
+    - name: 1.10 Verify Redis is responding
+      shell: "{{ redis_install_dir }}/bin/redis-cli ping"
+      register: replica_ping
+
+    - name: 1.11 Verify cluster state
+      shell: "{{ redis_install_dir }}/bin/redis-cli cluster info"
+      register: cluster_health
+      delegate_to: redis-node-1
+
+    - name: 1.12 Abort if cluster unhealthy
+      fail:
+        msg: "Cluster unhealthy after upgrading {{ inventory_hostname }}"
+      when: "'cluster_state:ok' not in cluster_health.stdout"
+
+    - name: 1.13 Replica Progress
+      debug:
+        msg: >-
+          [{{ groups['replicas'].index(inventory_hostname) + 1 }}/{{ groups['replicas'] | length + groups['masters'] | length }}]
+          Upgraded replica {{ ansible_host }} — cluster: ok
+
+# ====================================================================
+# STAGE 2: UPGRADE MASTER NODES (WITH CONTROLLED FAILOVER)
+# ====================================================================
+- name: Phase 4 - Controlled Failover and Master Upgrades
+  hosts: masters
+  serial: 1  # Forces Ansible to process master nodes ONE-BY-ONE
+  become: yes
+  vars:
+    redis_install_dir: "/opt/redis"
+    redis_port: 6379
+    redis_user: "redis"
+    redis_log_dir: "/var/log/redis"
+    
+    replica_map:
+      redis-node-1: "10.10.0.15"
+      redis-node-2: "10.10.0.16"
+      redis-node-3: "10.10.0.14"
+
+  tasks:
+    - name: 2.1 Print current Master node
+      debug:
+        msg: ">>>> Initiating Zero-Downtime Upgrade on Primary Master Node: {{ inventory_hostname }} <<<<"
+        
+    - name: 2.2 Get paired upgraded replica
+      set_fact:
+        paired_replica_ip: "{{ replica_map[inventory_hostname] }}"    
+      
+    - name: 2.3 Display target replica chosen for temporary promotion
+      debug:
+        msg: "Replica selected for failover: {{ paired_replica_ip }}" 
+
+    - name: 2.4 Trigger CLUSTER FAILOVER command on replica
+      shell: >
+        {{ redis_install_dir }}/bin/redis-cli
+        -h {{ paired_replica_ip }}
+        -p {{ redis_port }}
+        CLUSTER FAILOVER
+      delegate_to: redis-node-1
+
+    - name: 2.5 Await topology convergence window
+      pause:
+        seconds: 15
+
+    - name: 2.6 Download target Redis version {{ target_version }} for old master
+      get_url:
+        url: "https://download.redis.io/releases/redis-{{ target_version }}.tar.gz"
+        dest: "/tmp/redis-{{ target_version }}.tar.gz"
+
+    - name: 2.7 Extract source archive package
+      unarchive:
+        src: "/tmp/redis-{{ target_version }}.tar.gz"
+        dest: "/tmp/"
+        remote_src: yes
+
+    - name: 2.8 Compile old master target binaries
+      command:
+        cmd: make -j{{ ansible_processor_vcpus | default(2) }}
+        chdir: "/tmp/redis-{{ target_version }}"
+
+    - name: 2.9 Shut down old server engine instance safely
+      shell: "pkill -f redis-server || true"
+      ignore_errors: yes
+      failed_when: false
+
+    - name: 2.10 Swap engine binaries to target software version
+      command:
+        cmd: "make PREFIX={{ redis_install_dir }} install"
+        chdir: "/tmp/redis-{{ target_version }}"
+     
+    - name: 2.11 Turn server engine back on
+      shell: >
+        sudo -u {{ redis_user }}
+        {{ redis_install_dir }}/bin/redis-server
+        {{ redis_install_dir }}/redis.conf
+        --daemonize yes 
+
+    - name: 2.12 Wait for network socket activation
+      wait_for:
+        host: 127.0.0.1
+        port: "{{ redis_port }}"
+        timeout: 60
+
+    - name: 2.13 Wait for cluster stabilization
+      pause:
+        seconds: 15
+
+    - name: 2.14 Verify Redis is responding
+      shell: "{{ redis_install_dir }}/bin/redis-cli ping"
+      register: master_node_status
+
+    - name: 2.15 Verify cluster state
+      shell: "{{ redis_install_dir }}/bin/redis-cli cluster info"
+      register: cluster_health
+      delegate_to: redis-node-1
+
+    - name: 2.16 Abort if cluster unhealthy
+      fail:
+        msg: "Cluster unhealthy after upgrading {{ inventory_hostname }}"
+      when: "'cluster_state:ok' not in cluster_health.stdout"
+
+    - name: 2.17 Master Progress
+      debug:
+        msg: >-
+          [{{ groups['replicas'] | length + groups['masters'].index(inventory_hostname) + 1 }}/{{ groups['replicas'] | length + groups['masters'] | length }}]
+          Upgraded master {{ ansible_host }} — cluster: ok
+
+# ====================================================================
+# STAGE 3: POST-UPGRADE VERIFICATION
+# Required by spec: re-run data verify, confirm all nodes report
+# the new version, and print a clear completion banner.
+# ====================================================================
+- name: Phase 4 - Post-upgrade Verification
+  hosts: redis-node-1
+  become: yes
+  vars:
+    redis_install_dir: "/opt/redis"
+    redis_port: 6379
+
+  tasks:
+    - name: 3.1 Re-run data verify after upgrade
+      shell: /tmp/verify_redis.sh
+      register: postupgrade_data_verify
+      failed_when: false
+
+    - name: 3.2 Collect post-upgrade version from all nodes
+      shell: >
+        {{ redis_install_dir }}/bin/redis-cli
+        -h {{ hostvars[item].ansible_host }}
+        -p {{ redis_port }}
+        INFO Server
+      delegate_to: "{{ item }}"
+      loop: "{{ groups['redis_nodes'] }}"
+      register: postupgrade_versions
+
+    - name: 3.3 Extract distinct post-upgrade versions
+      set_fact:
+        postupgrade_distinct_versions: >-
+          {{
+            postupgrade_versions.results
+            | map(attribute='stdout')
+            | map('regex_search', 'redis_version:([0-9.]+)', '\1')
+            | map('first')
+            | list
+            | unique
+          }}
+
+    - name: 3.4 Fail if data integrity did not pass after upgrade
+      fail:
+        msg: >
+          UPGRADE FAILED VERIFICATION: data verify did not return PASS
+          after the upgrade completed. Output:
+          {{ postupgrade_data_verify.stdout }}
+      when: "'PASS' not in postupgrade_data_verify.stdout"
+
+    - name: 3.5 Fail if any node is not on the target version
+      fail:
+        msg: >
+          UPGRADE FAILED VERIFICATION: not all nodes report
+          {{ target_version }}. Found versions: {{ postupgrade_distinct_versions }}
+      when: postupgrade_distinct_versions != [target_version]
+
+    - name: 3.6 UPGRADE COMPLETE
+      debug:
+        msg: |
+          =========================================
+          UPGRADE COMPLETE
+          =========================================
+          All nodes on v{{ target_version }}, data integrity verified.
+          {{ postupgrade_data_verify.stdout_lines | select('search', 'PASS') | first | default('') }}
+          =========================================

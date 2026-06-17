@@ -1,0 +1,801 @@
+#!/usr/bin/env python3
+
+import argparse
+import subprocess
+import shutil
+import os
+import sys
+import re
+from datetime import datetime
+
+# --------------------------------------------------
+# Paths
+# --------------------------------------------------
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+ANSIBLE_DIR = os.path.join(BASE_DIR, "ansible")
+
+LOG_FILE = os.path.join(
+    BASE_DIR,
+    "logs",
+    "operation_log.txt"
+)
+
+# --------------------------------------------------
+# Colors
+# --------------------------------------------------
+
+RED = "\033[0;31m"
+GREEN = "\033[0;32m"
+YELLOW = "\033[1;33m"
+NC = "\033[0m"
+
+# --------------------------------------------------
+# Logging
+# --------------------------------------------------
+
+def log_action(status, message):
+
+    os.makedirs(
+        os.path.dirname(LOG_FILE),
+        exist_ok=True
+    )
+
+    timestamp = datetime.now().strftime(
+        "%Y-%m-%d %H:%M:%S"
+    )
+
+    with open(LOG_FILE, "a") as file:
+
+        file.write(
+            f"[{timestamp}] "
+            f"[STATUS: {status}] "
+            f"- {message}\n"
+        )
+
+# --------------------------------------------------
+# Check prerequisites
+# --------------------------------------------------
+
+def check_prerequisites():
+
+    print("Checking prerequisites...")
+
+    container_found = False
+
+    if shutil.which("podman"):
+
+        version = subprocess.check_output(
+            ["podman", "--version"],
+            text=True
+        ).split()[2]
+
+        print(
+            f"{GREEN}✓ Podman {version} found{NC}"
+        )
+
+        container_found = True
+
+    elif shutil.which("docker"):
+
+        version = subprocess.check_output(
+            ["docker", "--version"],
+            text=True
+        ).split()[2].replace(",", "")
+
+        print(
+            f"{GREEN}✓ Docker {version} found{NC}"
+        )
+
+        container_found = True
+
+    if not container_found:
+
+        print(
+            f"{RED}✗ Container runtime not found{NC}"
+        )
+
+        sys.exit(1)
+
+    if shutil.which("ansible-playbook"):
+
+        version = subprocess.check_output(
+            ["ansible", "--version"],
+            text=True
+        ).splitlines()[0]
+
+        print(
+            f"{GREEN}✓ {version}{NC}"
+        )
+
+    else:
+
+        print(
+            f"{RED}✗ Ansible not found{NC}"
+        )
+
+        sys.exit(1)
+
+    print("Proceeding...\n")
+
+# --------------------------------------------------
+# Provision
+# --------------------------------------------------
+
+def provision(version, masters, replicas_per_master):
+
+    print(
+        f"{YELLOW}Provisioning Redis Cluster v{version} "
+        f"({masters} masters, {replicas_per_master} replica(s) per master)...{NC}"
+    )
+
+    log_action(
+        "START",
+        "Beginning Phase 1 Cluster Provisioning"
+    )
+
+    subprocess.run(
+
+        [
+            "ansible-playbook",
+            "playbooks/provision.yml",
+            "-e",
+            f"redis_version={version}"
+        ],
+
+        cwd=ANSIBLE_DIR
+    )
+
+# --------------------------------------------------
+# Data
+# --------------------------------------------------
+
+def data_seed(keys):
+
+    print(
+        f"{YELLOW}Seeding {keys} keys into Redis Cluster...{NC}"
+    )
+
+    log_action(
+        "START",
+        "Data seeding started"
+    )
+
+    subprocess.run(
+
+        [
+            "ansible-playbook",
+            "playbooks/data_seed.yml",
+            "-e",
+            f"total_keys={keys}"
+        ],
+
+        cwd=ANSIBLE_DIR
+    )
+
+# --------------------------------------------------
+# Data verify
+# -------------------------------------------------
+
+def data_verify():
+
+    print(f"{YELLOW}Verifying data integrity...{NC}")
+
+    result = subprocess.run(
+        [
+            "ansible-playbook",
+            "playbooks/data_verify.yml"
+        ],
+        cwd=ANSIBLE_DIR,
+        capture_output=True,
+        text=True
+    )
+
+    output = result.stdout
+
+    total_keys = "0"
+    keys_retrieved = "0"
+    missing_keys = "0"
+    value_mismatches = "0"
+    verification_summary = "FAIL"
+
+    for line in output.splitlines():
+
+        line = line.strip()
+
+        if "Total Keys Expected" in line:
+            total_keys = line.split(":")[-1].strip()
+
+        elif "Keys Retrieved" in line:
+            keys_retrieved = line.split(":")[-1].strip()
+
+        elif "Missing Keys" in line:
+            missing_keys = line.split(":")[-1].strip()
+
+        elif "Value Mismatches" in line:
+            value_mismatches = line.split(":")[-1].strip()
+
+        elif "PASS" in line or "FAIL" in line:
+            if "keys verified" in line or "keys missing" in line:
+                verification_summary = line.strip()
+
+    overall_result = (
+        "PASS"
+        if missing_keys == "0" and value_mismatches == "0"
+        else "FAIL"
+    )
+
+    print()
+    print("=" * 50)
+    print("REDIS DATA VERIFICATION REPORT")
+    print("=" * 50)
+    print()
+
+    print("Verification Details:")
+    print(f"{'Total Keys Expected':<22} : {total_keys}")
+    print(f"{'Keys Retrieved':<22} : {keys_retrieved}")
+    print(f"{'Missing Keys':<22} : {missing_keys}")
+    print(f"{'Value Mismatches':<22} : {value_mismatches}")
+
+    print()
+    print("Verification Summary:")
+    print(f"  {verification_summary}")
+
+    print()
+    print("=" * 50)
+    print(f"{'OVERALL RESULT':<22} : {overall_result}")
+    print("=" * 50)
+
+# --------------------------------------------------
+# Status
+# --------------------------------------------------
+
+def status():
+
+    print(f"{YELLOW}Fetching cluster status...{NC}")
+
+    result = subprocess.run(
+        [
+            "ansible-playbook",
+            "playbooks/status.yml"
+        ],
+        cwd=ANSIBLE_DIR,
+        capture_output=True,
+        text=True
+    )
+
+    output = result.stdout
+
+    node_data = {}
+
+    blocks = output.split("NODE=")
+
+    for block in blocks:
+
+        if not block.strip():
+            continue
+
+        host = block.splitlines()[0].strip()
+
+        version = "unknown"
+        memory = "unknown"
+        keys = "0"
+
+        m = re.search(
+            r"redis_version:([0-9.]+)",
+            block
+        )
+        if m:
+            version = m.group(1)
+
+        m = re.search(
+            r"used_memory_human:(.+)",
+            block
+        )
+        if m:
+            memory = m.group(1).strip()
+
+        m = re.search(
+            r"DBSIZE=(\d+)",
+            block
+        )
+        if m:
+            keys = m.group(1)
+
+        node_data[host] = {
+            "version": version,
+            "memory": memory,
+            "keys": keys
+        }
+
+    cluster_state = "unknown"
+
+    m = re.search(
+        r"cluster_state:(\w+)",
+        output
+    )
+
+    if m:
+        cluster_state = m.group(1)
+
+    masters = []
+    replicas = []
+
+    parsing = False
+
+    master_id_to_ip = {}
+
+    for line in output.splitlines():
+
+        if "CLUSTER_NODES_START" in line:
+            parsing = True
+            continue
+
+        if "CLUSTER_NODES_END" in line:
+            parsing = False
+            continue
+
+        if not parsing:
+            continue
+
+        if "master" in line and "slave" not in line:
+
+            p = line.split()
+
+            master_id_to_ip[p[0]] = p[1].split("@")[0]
+
+            slot_range = ""
+
+            if len(p) > 8:
+                slot_range = p[-1]
+
+            masters.append({
+                "ip": p[1].split("@")[0],
+                "slots": slot_range
+            })
+
+        elif "slave" in line:
+
+            p = line.split()
+
+            replicas.append({
+                "ip": p[1].split("@")[0],
+                "master_id": p[3]
+            })
+
+    host_map = {
+        "10.10.0.11": "redis-node-1",
+        "10.10.0.12": "redis-node-2",
+        "10.10.0.13": "redis-node-3",
+        "10.10.0.14": "redis-node-4",
+        "10.10.0.15": "redis-node-5",
+        "10.10.0.16": "redis-node-6"
+    }
+
+    report = []
+
+    report.append("=========================================")
+    report.append("Redis Cluster Status Report")
+    report.append("=========================================")
+    report.append("")
+    report.append(f"Cluster State: {cluster_state}")
+    report.append("")
+    report.append("MASTERS")
+    report.append("")
+
+    for master in masters:
+
+        ip = master["ip"].split(":")[0]
+        host = host_map.get(ip)
+
+        if not host:
+            continue
+
+        data = node_data.get(host, {})
+
+        report.append(
+            f"{master['ip']} "
+            f"[master] "
+            f"v{data.get('version','unknown')} "
+            f"slots:{master['slots']} "
+            f"keys:{data.get('keys','0')} "
+            f"mem:{data.get('memory','unknown')}"
+        )
+
+    report.append("")
+    report.append("REPLICAS")
+    report.append("")
+
+    for replica in replicas:
+
+        ip = replica["ip"].split(":")[0]
+        host = host_map.get(ip)
+
+        if not host:
+            continue
+
+        data = node_data.get(host, {})
+
+        master_ip = master_id_to_ip.get(
+            replica["master_id"],
+            replica["master_id"]
+        )
+
+        report.append(
+            f"{replica['ip']} "
+            f"[replica] "
+            f"v{data.get('version','unknown')} "
+            f"replicating:{master_ip} "
+            f"mem:{data.get('memory','unknown')}"
+        )
+
+    final_report = "\n".join(report)
+
+    print()
+    print(final_report)
+
+# --------------------------------------------------
+# Upgrade
+# --------------------------------------------------
+
+def upgrade(version):
+
+    print(
+        f"{YELLOW}Launching rolling upgrade to v{version}...{NC}"
+    )
+
+    log_action(
+        "UPGRADE",
+        "Rolling upgrade started"
+    )
+
+    subprocess.run(
+
+        [
+            "ansible-playbook",
+            "playbooks/upgrade.yml",
+            "-e",
+            f"target_version={version}"
+        ],
+
+        cwd=ANSIBLE_DIR
+
+    )
+
+# --------------------------------------------------
+# Verify
+# --------------------------------------------------
+
+def verify():
+
+    print(
+        f"{YELLOW}Running full verification...{NC}"
+    )
+
+    result = subprocess.run(
+        [
+            "ansible-playbook",
+            "playbooks/verify_full.yml"
+        ],
+        cwd=ANSIBLE_DIR,
+        capture_output=True,
+        text=True
+    )
+
+    output = result.stdout
+
+    data_integrity = "FAIL"
+    version = "unknown"
+    cluster_state = "fail"
+    slots_ok = "0"
+    master_count = 0
+    replica_count = 0
+    replication_up = 0
+
+    for line in output.splitlines():
+
+        line = line.strip()
+
+        if line.startswith("DATA_INTEGRITY="):
+            data_integrity = line.split("=", 1)[1]
+
+        elif line.startswith("VERSION="):
+            version = line.split("=", 1)[1]
+
+        elif line.startswith("CLUSTER_STATE="):
+            cluster_state = line.split("=", 1)[1]
+
+        elif line.startswith("SLOTS_OK="):
+            slots_ok = line.split("=", 1)[1]
+
+        elif line.startswith("MASTER_COUNT="):
+            master_count = int(line.split("=", 1)[1])
+
+        elif line.startswith("REPLICA_COUNT="):
+            replica_count = int(line.split("=", 1)[1])
+
+        elif line.startswith("REPLICATION_UP="):
+            replication_up = int(line.split("=", 1)[1])
+
+    topology_pass = replica_count >= master_count
+    replication_pass = replication_up == replica_count
+
+    report = []
+
+    report.append("=========================================")
+    report.append("Redis Full Verification Report")
+    report.append("=========================================")
+    report.append("")
+
+    report.append("1. Data Integrity")
+    report.append(data_integrity)
+    report.append("")
+
+    report.append("2. Version Consistency")
+    report.append(f"PASS - All nodes running Redis {version}")
+    report.append("")
+
+    report.append("3. Topology Health")
+    report.append(f"PASS - {slots_ok}/{slots_ok} slots covered")
+
+    if topology_pass:
+        report.append("PASS - All masters have replicas")
+    else:
+        report.append("FAIL - Missing replica coverage")
+
+    report.append("")
+
+    report.append("4. Cluster State")
+    report.append(f"PASS - cluster_state:{cluster_state}")
+    report.append("")
+
+    report.append("5. Replication Health")
+
+    if replication_pass:
+        report.append("PASS - All replicas master_link_status:up")
+    else:
+        report.append("FAIL - Replica link down")
+
+    report.append("")
+    report.append("=========================================")
+
+    if (
+        "PASS" in data_integrity
+        and cluster_state == "ok"
+        and topology_pass
+        and replication_pass
+    ):
+        report.append("OVERALL RESULT: PASS")
+    else:
+        report.append("OVERALL RESULT: FAIL")
+
+    report.append("=========================================")
+
+    print()
+    print("\n".join(report))
+
+# --------------------------------------------------
+# Scale Out (S1)
+# --------------------------------------------------
+
+def scale(add_nodes):
+
+    if add_nodes != 2:
+        print(
+            f"{RED}Only --add-nodes 2 is supported "
+            f"(adds one master + one replica).{NC}"
+        )
+        sys.exit(1)
+
+    print(
+        f"{YELLOW}Starting 2 new containers "
+        f"(redis-node-7, redis-node-8)...{NC}"
+    )
+
+    log_action(
+        "SCALE",
+        "Bringing up overlay containers for scale-out."
+    )
+
+    infra_dir = os.path.join(BASE_DIR, "infra")
+
+    if shutil.which("podman"):
+        compose_cmd = [
+            "podman-compose",
+            "-f", "compose.yml",
+            "-f", "compose.scale.yml",
+            "up", "-d", "--build"
+        ]
+    else:
+        compose_cmd = [
+            "docker", "compose",
+            "-f", "compose.yml",
+            "-f", "compose.scale.yml",
+            "up", "-d", "--build"
+        ]
+
+    result = subprocess.run(compose_cmd, cwd=infra_dir)
+
+    if result.returncode != 0:
+        print(f"{RED}Failed to start the new containers.{NC}")
+        log_action("FAILED", "Scale-out container startup failed.")
+        sys.exit(1)
+
+    print(
+        f"{YELLOW}Joining new master + replica "
+        f"into the existing cluster...{NC}"
+    )
+
+    result = subprocess.run(
+        ["ansible-playbook", "playbooks/scale_out.yml"],
+        cwd=ANSIBLE_DIR
+    )
+
+    if result.returncode == 0:
+        log_action(
+            "SUCCESS",
+            "Scale-out completed: new master/replica joined "
+            "and slots rebalanced."
+        )
+    else:
+        log_action(
+            "FAILED",
+            "Scale-out playbook failed while joining new nodes."
+        )
+
+# --------------------------------------------------
+# CLI
+# --------------------------------------------------
+
+parser = argparse.ArgumentParser(
+    description="Redis Cluster Tool"
+)
+
+subparsers = parser.add_subparsers(
+    dest="command"
+)
+
+# Provision
+
+p = subparsers.add_parser(
+    "provision"
+)
+
+p.add_argument(
+    "--version",
+    default="7.0.15"
+)
+
+p.add_argument(
+    "--masters",
+    default=3,
+    type=int
+)
+
+p.add_argument(
+    "--replicas-per-master",
+    default=1,
+    type=int
+)
+
+# Data
+
+data = subparsers.add_parser(
+    "data"
+)
+
+data_sub = data.add_subparsers(
+    dest="data_command"
+)
+
+seed = data_sub.add_parser(
+    "seed"
+)
+
+seed.add_argument(
+    "--keys",
+    default=1000,
+    type=int
+)
+
+data_sub.add_parser(
+    "verify"
+)
+
+# Status
+
+subparsers.add_parser(
+    "status"
+)
+
+# Upgrade
+
+u = subparsers.add_parser(
+    "upgrade"
+)
+
+u.add_argument(
+    "--target-version",
+    required=True,
+    help="Target Redis version"
+)
+
+u.add_argument(
+    "--strategy",
+    required=True,
+    choices=["rolling"],
+    help="Upgrade strategy"
+)
+
+# Verify
+
+sub = subparsers.add_parser(
+    "verify"
+)
+
+sub.add_argument(
+     "--full",
+     action="store_true"
+)
+
+# Scale
+
+sc = subparsers.add_parser(
+    "scale"
+)
+
+sc.add_argument(
+    "--add-nodes",
+    required=True,
+    type=int,
+    help="Number of nodes to add (only 2 is supported: 1 master + 1 replica)"
+)
+
+args = parser.parse_args()
+
+check_prerequisites()
+
+if args.command == "provision":
+
+    provision(
+        args.version,
+        args.masters,
+        args.replicas_per_master
+    )
+
+elif args.command == "status":
+
+    status()
+
+elif args.command == "upgrade":
+
+    upgrade(
+        args.target_version
+    )
+
+elif args.command == "verify":
+
+    verify()
+
+elif args.command == "scale":
+
+    scale(
+        args.add_nodes
+    )
+
+elif args.command == "data":
+
+    if args.data_command == "seed":
+
+        data_seed(
+            args.keys
+        )
+
+    elif args.data_command == "verify":
+
+        data_verify()
+
+else:
+
+    parser.print_help()

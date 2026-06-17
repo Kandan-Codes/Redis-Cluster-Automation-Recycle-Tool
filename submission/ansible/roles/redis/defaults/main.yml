@@ -1,0 +1,28 @@
+---
+# Redis version to install
+redis_version: "7.0.15"
+
+# Redis installation directory
+redis_install_dir: "/opt/redis"
+
+# Redis data directory
+redis_data_dir: "/var/lib/redis"
+
+# Redis log directory
+redis_log_dir: "/var/log/redis"
+
+# Redis port
+redis_port: 6379
+
+# Redis cluster bus port (redis_port + 10000)
+redis_cluster_bus_port: 16379
+
+# Redis cluster settings
+redis_cluster_enabled: "yes"
+redis_cluster_node_timeout: 5000
+
+# Redis bind address
+redis_bind: "0.0.0.0"
+
+# Redis user
+redis_user: "redis"

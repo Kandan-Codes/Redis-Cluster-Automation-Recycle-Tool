@@ -1,0 +1,61 @@
+===================== BEFORE UPGRADE REDIS STATUS ===========================
+
+
+mani-inc0683@mani-inc0683:~/redis-cluster-tool/submission$ ./redis-tool-CLI status
+Checking prerequisites...
+✓ Podman 4.9.3 found
+✓ ansible [core 2.16.3]
+Proceeding...
+
+Fetching cluster status...
+
+=========================================
+Redis Cluster Status Report
+=========================================
+
+Cluster State: ok
+
+MASTERS
+
+10.10.0.13:6379 [master] v7.0.15 slots:10923-16383 keys:343 mem:1.99M
+10.10.0.12:6379 [master] v7.0.15 slots:5461-10922 keys:324 mem:1.99M
+10.10.0.11:6379 [master] v7.0.15 slots:0-5460 keys:333 mem:1.96M
+
+REPLICAS
+
+10.10.0.14:6379 [replica] v7.0.15 replicating:10.10.0.13:6379 mem:1.92M
+10.10.0.15:6379 [replica] v7.0.15 replicating:10.10.0.11:6379 mem:1.92M
+10.10.0.16:6379 [replica] v7.0.15 replicating:10.10.0.12:6379 mem:1.92M
+
+
+
+
+======================= AFTER UPGRADE REDIS STATUS ============================
+
+
+mani-inc0683@mani-inc0683:~/redis-cluster-tool/submission$ ./redis-tool-CLI status
+Checking prerequisites...
+✓ Podman 4.9.3 found
+✓ ansible [core 2.16.3]
+Proceeding...
+
+Fetching cluster status...
+
+=========================================
+Redis Cluster Status Report
+=========================================
+
+Cluster State: ok
+
+MASTERS
+
+10.10.0.15:6379 [master] v7.2.6 slots:0-5460 keys:333 mem:1.78M
+10.10.0.14:6379 [master] v7.2.6 slots:10923-16383 keys:343 mem:1.78M
+10.10.0.16:6379 [master] v7.2.6 slots:5461-10922 keys:324 mem:1.78M
+
+REPLICAS
+
+10.10.0.12:6379 [replica] v7.2.6 replicating:10.10.0.16:6379 mem:1.69M
+10.10.0.11:6379 [replica] v7.2.6 replicating:10.10.0.15:6379 mem:1.74M
+10.10.0.13:6379 [replica] v7.2.6 replicating:10.10.0.14:6379 mem:1.69M
+

@@ -1,0 +1,92 @@
+======================== DATA SEEDING REPORT ==============================
+
+
+mani-inc0683@mani-inc0683:~/Downloads/submission$ ./redis-tool-CLI data seed --keys 1000
+Checking prerequisites...
+✓ Podman 4.9.3 found
+✓ ansible [core 2.16.3]
+Proceeding...
+
+Seeding 1000 keys into Redis Cluster...
+
+PLAY [Seed Redis Cluster with data] ***************************************************
+
+TASK [Gathering Facts] ****************************************************************
+ok: [redis-node-1]
+
+TASK [Create seed script] *************************************************************
+changed: [redis-node-1]
+
+TASK [Run seed script] ****************************************************************
+changed: [redis-node-1]
+
+TASK [Show seed result] ***************************************************************
+ok: [redis-node-1] => 
+  msg:
+  - Seeding 1000 keys into Redis Cluster...
+  - ''
+  - 'Seed Summary:'
+  - '  Total keys: 1000'
+  - '  Inserted:   1000'
+  - '  Failed:     0'
+
+TASK [Check key distribution across masters] ******************************************
+changed: [redis-node-1]
+
+TASK [Final Data Seed Report] *********************************************************
+ok: [redis-node-1] => 
+  msg: |-
+    =========================================
+  
+             REDIS DATA SEED REPORT
+  
+    =========================================
+  
+    Seeding 1000 keys into Redis Cluster...
+  
+    Seed Summary:
+      Total keys: 1000
+      Inserted:   1000
+      Failed:     0
+  
+    .........................................
+  
+    Key distribution across masters:
+      node-1 (10.10.0.11): 333
+      node-2 (10.10.0.12): 324
+      node-3 (10.10.0.13): 343
+  
+    =========================================
+
+PLAY RECAP ****************************************************************************
+redis-node-1               : ok=6    changed=3    unreachable=0    failed=0    skipped=0    rescued=0    ignored=0  
+
+
+
+================================= DATA VERIFICATION REPORT ============================
+
+mani-inc0683@mani-inc0683:~/redis-cluster-tool/submission$ ./redis-tool-CLI data verify
+Checking prerequisites...
+✓ Podman 4.9.3 found
+✓ ansible [core 2.16.3]
+Proceeding...
+
+Verifying data integrity...
+
+==================================================
+REDIS DATA VERIFICATION REPORT
+==================================================
+
+Verification Details:
+Total Keys Expected    : 1000
+Keys Retrieved         : 1000
+Missing Keys           : 0
+Value Mismatches       : 0
+
+Verification Summary:
+  PASS — 1000/1000 keys verified
+
+==================================================
+OVERALL RESULT         : PASS
+==================================================
+

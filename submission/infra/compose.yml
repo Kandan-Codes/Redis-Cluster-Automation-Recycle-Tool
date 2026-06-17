@@ -1,0 +1,87 @@
+version: '3.8'
+
+networks:
+  redis-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.10.0.0/24
+
+services:
+  redis-node-1:
+    build:
+      context: .
+      dockerfile: Containerfile
+    container_name: redis-node-1
+    hostname: redis-node-1
+    networks:
+      redis-net:
+        ipv4_address: 10.10.0.11
+    ports:
+      - "2221:22"
+    restart: unless-stopped
+
+  redis-node-2:
+    build:
+      context: .
+      dockerfile: Containerfile
+    container_name: redis-node-2
+    hostname: redis-node-2
+    networks:
+      redis-net:
+        ipv4_address: 10.10.0.12
+    ports:
+      - "2222:22"
+    restart: unless-stopped
+
+  redis-node-3:
+    build:
+      context: .
+      dockerfile: Containerfile
+    container_name: redis-node-3
+    hostname: redis-node-3
+    networks:
+      redis-net:
+        ipv4_address: 10.10.0.13
+    ports:
+      - "2223:22"
+    restart: unless-stopped
+
+  redis-node-4:
+    build:
+      context: .
+      dockerfile: Containerfile
+    container_name: redis-node-4
+    hostname: redis-node-4
+    networks:
+      redis-net:
+        ipv4_address: 10.10.0.14
+    ports:
+      - "2224:22"
+    restart: unless-stopped
+
+  redis-node-5:
+    build:
+      context: .
+      dockerfile: Containerfile
+    container_name: redis-node-5
+    hostname: redis-node-5
+    networks:
+      redis-net:
+        ipv4_address: 10.10.0.15
+    ports:
+      - "2225:22"
+    restart: unless-stopped
+
+  redis-node-6:
+    build:
+      context: .
+      dockerfile: Containerfile
+    container_name: redis-node-6
+    hostname: redis-node-6
+    networks:
+      redis-net:
+        ipv4_address: 10.10.0.16
+    ports:
+      - "2226:22"
+    restart: unless-stopped

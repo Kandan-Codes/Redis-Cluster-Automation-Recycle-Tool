@@ -1,0 +1,114 @@
+---
+- name: Phase 5 - Comprehensive Post-Upgrade Health Validation
+  hosts: redis-node-1
+  become: yes
+
+  vars:
+    redis_install_dir: "/opt/redis"
+    redis_port: 6379
+
+  tasks:
+
+    ####################################################################
+    # DATA INTEGRITY
+    ####################################################################
+
+    - name: Verify data integrity
+      shell: "/tmp/verify_redis.sh"
+      register: key_retention_check
+
+    ####################################################################
+    # VERSION CONSISTENCY
+    ####################################################################
+
+    - name: Collect Redis versions
+      shell: >
+        {{ redis_install_dir }}/bin/redis-cli
+        -h 10.10.0.1{{ item }}
+        -p {{ redis_port }}
+        INFO Server | grep redis_version
+      loop:
+        - 1
+        - 2
+        - 3
+        - 4
+        - 5
+        - 6
+      register: engine_versions
+
+    - name: Extract unique versions
+      set_fact:
+        unique_versions: "{{ engine_versions.results | map(attribute='stdout') | list | unique }}"
+
+    ####################################################################
+    # CLUSTER INFO
+    ####################################################################
+
+    - name: Collect cluster info
+      shell: >
+        {{ redis_install_dir }}/bin/redis-cli
+        -p {{ redis_port }}
+        cluster info
+      register: cluster_info
+
+    ####################################################################
+    # TOPOLOGY
+    ####################################################################
+
+    - name: Collect cluster nodes
+      shell: >
+        {{ redis_install_dir }}/bin/redis-cli
+        -p {{ redis_port }}
+        cluster nodes
+      register: cluster_nodes
+
+    - name: Count masters
+      set_fact:
+        master_count: "{{ cluster_nodes.stdout_lines | select('search',' master ') | list | length }}"
+
+    - name: Count replicas
+      set_fact:
+        replica_count: "{{ cluster_nodes.stdout_lines | select('search','slave') | list | length }}"
+
+    ####################################################################
+    # REPLICATION
+    ####################################################################
+
+    - name: Extract replica IPs
+      set_fact:
+        replica_ips: >-
+          {{
+            cluster_nodes.stdout_lines
+            | select('search','slave')
+            | map('split')
+            | map(attribute=1)
+            | map('regex_replace','@.*','')
+            | map('regex_replace',':6379','')
+            | list
+          }}
+
+    - name: Check replication health
+      shell: >
+        {{ redis_install_dir }}/bin/redis-cli
+        -h {{ item }}
+        -p {{ redis_port }}
+        INFO replication | grep master_link_status
+      loop: "{{ replica_ips }}"
+      register: replication_status
+
+    ####################################################################
+    # MACHINE-READABLE OUTPUT
+    ####################################################################
+
+    - name: Verification Output
+      debug:
+        msg: |
+          VERIFY_START
+          DATA_INTEGRITY={{ key_retention_check.stdout_lines | select('search','PASS') | first }}
+          VERSION={{ unique_versions[0] | regex_replace('redis_version:','') }}
+          CLUSTER_STATE={{ 'ok' if 'cluster_state:ok' in cluster_info.stdout else 'fail' }}
+          SLOTS_OK={{ '16384' if 'cluster_slots_ok:16384' in cluster_info.stdout else '0' }}
+          MASTER_COUNT={{ master_count }}
+          REPLICA_COUNT={{ replica_count }}
+          REPLICATION_UP={{ replication_status.results | selectattr('stdout','search','master_link_status:up') | list | length }}
+          VERIFY_END

@@ -1,0 +1,178 @@
+---
+# ============================================================
+# Task 1 - Create redis user (idempotent: no-op if it exists)
+# ============================================================
+- name: Create redis user
+  user:
+    name: "{{ redis_user }}"
+    system: yes
+    shell: /bin/false
+    create_home: no
+
+# ============================================================
+# Task 2 - Create required directories (idempotent by nature)
+# ============================================================
+- name: Create Redis directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ redis_user }}"
+    group: "{{ redis_user }}"
+    mode: '0755'
+  loop:
+    - "{{ redis_install_dir }}"
+    - "{{ redis_data_dir }}"
+    - "{{ redis_log_dir }}"
+
+# ============================================================
+# Detect current state BEFORE touching anything.
+# This is what lets the role collaborate with an
+# already-provisioned node/cluster instead of blindly
+# re-downloading, recompiling, and restarting Redis.
+# ============================================================
+- name: Check if target binary already exists
+  stat:
+    path: "{{ redis_install_dir }}/bin/redis-server"
+  register: redis_binary
+
+- name: Check currently installed Redis version (if binary exists)
+  shell: "{{ redis_install_dir }}/bin/redis-server --version"
+  register: installed_version_raw
+  changed_when: false
+  failed_when: false
+  when: redis_binary.stat.exists
+
+- name: Extract installed version string
+  set_fact:
+    installed_version: >-
+      {{
+        (installed_version_raw.stdout
+          | default('')
+          | regex_search('v=([0-9.]+)', '\1')
+          | first
+          | default(''))
+      }}
+  when: redis_binary.stat.exists and installed_version_raw.rc == 0
+
+- name: Default installed_version when binary is missing
+  set_fact:
+    installed_version: ""
+  when: not redis_binary.stat.exists
+
+- name: Check whether Redis process is currently running on this node
+  shell: "{{ redis_install_dir }}/bin/redis-cli -p {{ redis_port }} ping"
+  register: redis_running_check
+  changed_when: false
+  failed_when: false
+  when: redis_binary.stat.exists
+
+- name: Decide whether install/restart is needed
+  set_fact:
+    redis_already_correct: >-
+      {{
+        redis_binary.stat.exists
+        and installed_version == redis_version
+        and (redis_running_check.stdout | default('') ) == 'PONG'
+      }}
+
+- name: Report node provisioning decision
+  debug:
+    msg: >-
+      {{ inventory_hostname }}: installed='{{ installed_version | default('none') }}'
+      requested='{{ redis_version }}'
+      running='{{ (redis_running_check.stdout | default('no')) }}'
+      action={{ 'SKIP (already correct)' if redis_already_correct else 'INSTALL/UPGRADE' }}
+
+# ============================================================
+# Everything below only runs when the node does NOT already
+# have the correct version running — this is the idempotency
+# guarantee. Re-running provision on a healthy, correctly
+# versioned node is now a true no-op at the role level.
+# ============================================================
+
+# Task 3 - Download Redis source code
+- name: Download Redis {{ redis_version }}
+  get_url:
+    url: "https://download.redis.io/releases/redis-{{ redis_version }}.tar.gz"
+    dest: "/tmp/redis-{{ redis_version }}.tar.gz"
+  when: not redis_already_correct
+
+# Task 4 - Extract Redis source code
+- name: Extract Redis source code
+  unarchive:
+    src: "/tmp/redis-{{ redis_version }}.tar.gz"
+    dest: "/tmp/"
+    remote_src: yes
+  when: not redis_already_correct
+
+# Task 5 - Compile Redis from source
+# (plain shell + core 'command' module only — no community.general
+# 'make' module, to avoid an undeclared collection dependency)
+- name: Compile Redis from source
+  command:
+    cmd: make -j{{ ansible_processor_vcpus | default(2) }}
+    chdir: "/tmp/redis-{{ redis_version }}"
+  when: not redis_already_correct
+
+# Task 6 - Install Redis binaries
+- name: Install Redis binaries
+  command:
+    cmd: "make PREFIX={{ redis_install_dir }} install"
+    chdir: "/tmp/redis-{{ redis_version }}"
+  when: not redis_already_correct
+
+# Task 7 - Create/refresh Redis config file
+# Runs even when redis_already_correct, so config drift (e.g.
+# cluster-node-timeout changes) is still corrected without
+# touching the running process. template is idempotent: it
+# only reports "changed" if content actually differs.
+- name: Create Redis config file
+  template:
+    src: redis.conf.j2
+    dest: "{{ redis_install_dir }}/redis.conf"
+    owner: "{{ redis_user }}"
+    group: "{{ redis_user }}"
+    mode: '0640'
+  register: redis_config
+
+# Task 8 - Stop existing Redis only if we are actually
+# changing the binary or the config drifted.
+- name: Stop existing Redis (only if reinstalling or config changed)
+  shell: "pkill -f redis-server || true"
+  ignore_errors: yes
+  failed_when: false
+  when: not redis_already_correct or redis_config.changed
+
+- name: Wait after stopping Redis
+  pause:
+    seconds: 2
+  when: not redis_already_correct or redis_config.changed
+
+# Task 9 - Start Redis directly (only if we stopped it above)
+- name: Start Redis server
+  shell: >
+    sudo -u {{ redis_user }}
+    {{ redis_install_dir }}/bin/redis-server
+    {{ redis_install_dir }}/redis.conf
+    --daemonize yes
+    --logfile {{ redis_log_dir }}/redis.log
+    --pidfile /tmp/redis.pid
+  when: not redis_already_correct or redis_config.changed
+
+- name: Wait for Redis to start
+  wait_for:
+    port: "{{ redis_port }}"
+    timeout: 30
+  when: not redis_already_correct or redis_config.changed
+
+# Task 10 - Verify Redis is running (always, for confirmation)
+- name: Verify Redis is running
+  shell: "{{ redis_install_dir }}/bin/redis-cli -p {{ redis_port }} ping"
+  register: redis_ping
+  changed_when: false
+
+- name: Show Redis status
+  debug:
+    msg: >-
+      Redis on {{ inventory_hostname }} is {{ redis_ping.stdout }}
+      ({{ 'skipped, already correct' if redis_already_correct and not redis_config.changed else 'installed/restarted' }})

@@ -1,0 +1,88 @@
+---
+- name: Verify Redis Cluster data integrity
+  hosts: redis-node-1
+  become: yes
+
+  vars:
+    redis_install_dir: "/opt/redis"
+    total_keys: 1000
+
+  tasks:
+
+    - name: Create verify script inside container
+      copy:
+        dest: /tmp/verify_redis.sh
+        mode: '0755'
+        content: |
+          #!/bin/bash
+          REDIS_CLI="{{ redis_install_dir }}/bin/redis-cli"
+          TOTAL={{ total_keys }}
+          VERIFIED=0
+          MISSING=0
+          MISMATCH=0
+
+          echo "Verifying $TOTAL keys in Redis Cluster..."
+          echo ""
+
+          for i in $(seq -f "%04g" 1 $TOTAL)
+          do
+              KEY="key:$i"
+
+              EXPECTED=$(echo -n "$KEY" | sha256sum | awk '{print $1}')
+
+              ACTUAL=$(
+                  $REDIS_CLI \
+                  -c \
+                  -h 10.10.0.11 \
+                  -p 6379 \
+                  GET "$KEY" 2>/dev/null
+              )
+
+              if [ -z "$ACTUAL" ]; then
+                  MISSING=$((MISSING+1))
+              elif [ "$ACTUAL" != "$EXPECTED" ]; then
+                  MISMATCH=$((MISMATCH+1))
+              else
+                  VERIFIED=$((VERIFIED+1))
+              fi
+          done
+
+          echo "Verification Details:"
+          echo "  Total Keys Expected : $TOTAL"
+          echo "  Keys Retrieved      : $VERIFIED"
+          echo "  Missing Keys        : $MISSING"
+          echo "  Value Mismatches    : $MISMATCH"
+          echo ""
+
+          echo "Verification Summary:"
+
+          if [ "$MISSING" -eq 0 ] && [ "$MISMATCH" -eq 0 ]; then
+              echo "  PASS — $VERIFIED/$TOTAL keys verified"
+              exit 0
+          else
+              echo "  FAIL — $MISSING keys missing, $MISMATCH values mismatched"
+              exit 1
+          fi
+
+    - name: Run verification script
+      shell: /tmp/verify_redis.sh
+      register: verify_result
+      failed_when: false
+
+    - name: Final Verification Report
+      debug:
+        msg: |
+          =================================================
+
+                  REDIS DATA VERIFICATION REPORT
+
+          =================================================
+
+          {{ verify_result.stdout }}
+
+          =================================================
+
+    - name: Propagate failure to playbook exit code if verification failed
+      fail:
+        msg: "Data verification reported FAIL — see report above."
+      when: "'FAIL' in verify_result.stdout"

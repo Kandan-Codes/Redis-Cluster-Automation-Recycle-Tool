@@ -1,0 +1,139 @@
+---
+- name: Install Redis on all nodes
+  hosts: redis_nodes
+  become: yes
+  roles:
+    - redis
+
+- name: Form Redis Cluster
+  hosts: redis-node-1
+  become: yes
+
+  vars:
+    redis_port: 6379
+    redis_install_dir: "/opt/redis"
+
+  tasks:
+
+    - name: Wait for all Redis nodes to be ready
+      wait_for:
+        host: "{{ item }}"
+        port: "{{ redis_port }}"
+        timeout: 60
+      loop:
+        - 10.10.0.11
+        - 10.10.0.12
+        - 10.10.0.13
+        - 10.10.0.14
+        - 10.10.0.15
+        - 10.10.0.16
+
+    - name: Check Cluster Status
+      shell: >
+        {{ redis_install_dir }}/bin/redis-cli
+        cluster info
+      register: cluster_info
+      ignore_errors: yes
+
+    - name: Check Installed Redis Version
+      shell: >
+        {{ redis_install_dir }}/bin/redis-server --version
+      register: current_version
+      ignore_errors: yes
+
+    - name: Extract Installed Version
+      set_fact:
+        installed_version: >-
+          {{
+            current_version.stdout
+            | regex_search('v=([0-9.]+)', '\1')
+            | first
+            | default('')
+          }}
+
+    - name: Determine Cluster Readiness
+      set_fact:
+        cluster_ready: >-
+          {{
+            cluster_info.rc == 0 and
+            ('cluster_state:ok' in cluster_info.stdout)
+          }}
+
+        version_match: >-
+          {{
+            installed_version == redis_version
+          }}
+
+    - name: Provisioning Decision
+      debug:
+        msg: |
+          =========================================
+
+          REDIS PROVISIONING CHECK
+
+          =========================================
+
+          Cluster Ready   : {{ cluster_ready }}
+          Installed Redis : {{ installed_version }}
+          Requested Redis : {{ redis_version }}
+          Version Match   : {{ version_match }}
+
+          =========================================
+
+    - name: Skip Provisioning
+      debug:
+        msg: |
+          =========================================
+
+          REDIS CLUSTER ALREADY PROVISIONED
+
+          Cluster State : OK
+          Redis Version : {{ installed_version }}
+
+          Provisioning skipped.
+
+          =========================================
+      when:
+        - cluster_ready
+        - version_match
+
+    - name: Form Redis Cluster
+      shell: >
+        {{ redis_install_dir }}/bin/redis-cli
+        --cluster create
+        10.10.0.11:6379
+        10.10.0.12:6379
+        10.10.0.13:6379
+        10.10.0.14:6379
+        10.10.0.15:6379
+        10.10.0.16:6379
+        --cluster-replicas 1
+        --cluster-yes
+      register: cluster_result
+      when: not (cluster_ready and version_match)
+
+    - name: Show Cluster Creation Result
+      debug:
+        var: cluster_result.stdout
+      when: not (cluster_ready and version_match)
+
+    - name: Get Cluster Topology
+      shell: >
+        {{ redis_install_dir }}/bin/redis-cli
+        --cluster check
+        10.10.0.11:6379
+      register: cluster_topology
+
+    - name: Print Cluster Topology
+      debug:
+        msg: |
+
+          =========================================
+
+                  REDIS CLUSTER TOPOLOGY
+
+          =========================================
+
+          {{ cluster_topology.stdout }}
+
+          =========================================
